@@ -1,0 +1,197 @@
+---
+title: "Module 4 — Solve LP Model in R (Weigelt Corporation)"
+author: "Jaipreet Kaur"
+output:
+  pdf_document: default
+  html_document:
+    toc: true
+    toc_depth: 2
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+# Setup
+# install.packages("lpSolve")  # uncomment if not installed
+library(lpSolve)
+options(digits = 6)
+```
+
+# Problem summary
+
+- Plants: 1, 2, 3 with excess unit capacity: 750, 900, 450 (units/day).
+- In-process storage (sq ft): P1=13,000; P2=12,000; P3=5,000.
+- Sizes: Large (L), Medium (M), Small (S) with space per unit: 20, 15, 12.
+- Profits per unit: L $420, M $360, S $300.
+- Demand upper bounds (total across plants): L ≤ 900, M ≤ 1,200, S ≤ 750.
+- Policy: **All plants must use the same % of their excess capacity.**
+
+# LP formulation
+
+Let decision variables be \(x_{p,s} \ge 0\) for plant \(p \in \{1,2,3\}\) and size \(s \in \{L,M,S\}\).
+
+**Maximize profit**
+\[
+\max \; 420\sum_p x_{p,L} + 360\sum_p x_{p,M} + 300\sum_p x_{p,S}
+\]
+
+**Plant capacity and equal-percentage policy**
+\[
+\sum_s x_{1,s} \le 750,\quad
+\sum_s x_{2,s} \le 900,\quad
+\sum_s x_{3,s} \le 450
+\]
+Equal percentage of capacity:
+\[
+\frac{\sum_s x_{1,s}}{750} = \frac{\sum_s x_{2,s}}{900} = \frac{\sum_s x_{3,s}}{450}
+\]
+We linearize with two equalities:
+\[
+900\sum_s x_{1,s} - 750\sum_s x_{2,s} = 0,\qquad
+450\sum_s x_{1,s} - 750\sum_s x_{3,s} = 0.
+\]
+
+**Storage per plant**
+\[
+20x_{1,L}+15x_{1,M}+12x_{1,S} \le 13{,}000
+\]
+\[
+20x_{2,L}+15x_{2,M}+12x_{2,S} \le 12{,}000
+\]
+\[
+20x_{3,L}+15x_{3,M}+12x_{3,S} \le 5{,}000
+\]
+
+**Demand upper bounds (across all plants)**
+\[
+\sum_p x_{p,L} \le 900,\quad
+\sum_p x_{p,M} \le 1{,}200,\quad
+\sum_p x_{p,S} \le 750.
+\]
+
+# R solution (lpSolve)
+
+```{r}
+# Variable order: P1L,P1M,P1S, P2L,P2M,P2S, P3L,P3M,P3S
+profits <- c(420,360,300, 420,360,300, 420,360,300)
+
+# Build constraints
+A <- list(); dir <- c(); rhs <- c()
+
+# 1) Plant unit capacities: sum_s x_{p,s} <= cap_p
+cap <- c(P1=750, P2=900, P3=450)
+A <- append(A, list(
+  c(1,1,1, 0,0,0, 0,0,0),   # P1
+  c(0,0,0, 1,1,1, 0,0,0),   # P2
+  c(0,0,0, 0,0,0, 1,1,1)    # P3
+))
+dir <- c(dir, "<=", "<=", "<=")
+rhs <- c(rhs, cap)
+
+# 2) Storage per plant: 20L+15M+12S <= storage_p
+storage <- c(P1=13000, P2=12000, P3=5000)
+space   <- c(L=20, M=15, S=12)
+A <- append(A, list(
+  c(20,15,12, 0,0,0, 0,0,0),      # P1 storage
+  c(0,0,0, 20,15,12, 0,0,0),      # P2 storage
+  c(0,0,0, 0,0,0, 20,15,12)       # P3 storage
+))
+dir <- c(dir, "<=", "<=", "<=")
+rhs <- c(rhs, storage)
+
+# 3) Demand upper bounds across plants
+# L: P1L+P2L+P3L <= 900
+# M: P1M+P2M+P3M <= 1200
+# S: P1S+P2S+P3S <= 750
+A <- append(A, list(
+  c(1,0,0, 1,0,0, 1,0,0),  # L
+  c(0,1,0, 0,1,0, 0,1,0),  # M
+  c(0,0,1, 0,0,1, 0,0,1)   # S
+))
+dir <- c(dir, "<=", "<=", "<=")
+rhs <- c(rhs, 900, 1200, 750)
+
+# 4) Equal percentage of capacity (two equalities)
+# 900*sum(P1) - 750*sum(P2) = 0
+A <- append(A, list(
+  900*c(1,1,1, 0,0,0, 0,0,0) - 750*c(0,0,0, 1,1,1, 0,0,0),
+  450*c(1,1,1, 0,0,0, 0,0,0) - 750*c(0,0,0, 0,0,0, 1,1,1)
+))
+dir <- c(dir, "=", "=")
+rhs <- c(rhs, 0, 0)
+
+# Assemble matrix
+const.mat <- do.call(rbind, A)
+const.dir <- dir
+const.rhs <- rhs
+
+# Solve
+sol <- lp(direction = "max",
+          objective.in = profits,
+          const.mat = const.mat,
+          const.dir = const.dir,
+          const.rhs = const.rhs,
+          all.int = FALSE)  # continuous
+
+stopifnot(sol$status == 0)  # 0 = optimal
+
+# Tidy output
+vars <- c("P1L","P1M","P1S","P2L","P2M","P2S","P3L","P3M","P3S")
+plan <- setNames(sol$solution, vars)
+profit_opt <- sol$objval
+
+list(
+  Optimal_Production_Plan = round(plan, 6),
+  Total_Daily_Profit = profit_opt
+)
+```
+
+# Results & checks
+
+```{r}
+plan <- setNames(sol$solution, c("P1L","P1M","P1S","P2L","P2M","P2S","P3L","P3M","P3S"))
+profit_opt <- sol$objval
+
+# Per-plant totals and % of capacity (should match across plants)
+cap <- c(P1=750, P2=900, P3=450)
+plant_totals <- c(
+  P1 = sum(plan[c("P1L","P1M","P1S")]),
+  P2 = sum(plan[c("P2L","P2M","P2S")]),
+  P3 = sum(plan[c("P3L","P3M","P3S")])
+)
+pct <- plant_totals / cap
+
+# Storage usage per plant
+storage_used <- c(
+  P1 = 20*plan["P1L"] + 15*plan["P1M"] + 12*plan["P1S"],
+  P2 = 20*plan["P2L"] + 15*plan["P2M"] + 12*plan["P2S"],
+  P3 = 20*plan["P3L"] + 15*plan["P3M"] + 12*plan["P3S"]
+)
+
+# Demand usage for each size
+demand_used <- c(
+  L = plan["P1L"] + plan["P2L"] + plan["P3L"],
+  M = plan["P1M"] + plan["P2M"] + plan["P3M"],
+  S = plan["P1S"] + plan["P2S"] + plan["P3S"]
+)
+
+list(
+  Optimal_Production_Plan = round(plan, 3),
+  Total_Daily_Profit = round(profit_opt, 0),
+  Plant_Totals = round(plant_totals, 3),
+  Percent_of_Capacity = round(pct, 6),
+  Storage_Used = round(storage_used, 3),
+  Demand_Used = round(demand_used, 3)
+)
+```
+
+# Interpretation (brief)
+
+- **Optimal mix (units/day)**:
+  - **Plant 1**: ~516.667 L, ~177.778 M, 0 S  
+  - **Plant 2**: 0 L, ~666.667 M, ~166.667 S  
+  - **Plant 3**: 0 L, 0 M, ~416.667 S
+- **Total profit**: **$696,000 per day**.
+- Each plant runs at the **same percentage of capacity** (~0.925926 of its excess capacity).
+- **Binding constraints** are the **storage limits** at all three plants (exactly met).  
+  Demand limits for L/M/S are **not binding** at optimum (headroom remains).
+- Managerial view: To honor equal-utilization while maximizing profit under tight storage, allocate **higher-profit, higher-space** items (L/M) early at plants with larger storage (P1/P2) and push **space-efficient S** to P3.
