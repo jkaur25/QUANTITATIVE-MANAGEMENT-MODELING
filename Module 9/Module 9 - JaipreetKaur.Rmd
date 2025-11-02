@@ -1,0 +1,133 @@
+---
+title: 'Module 9 – Goal Programming: Emax Corporation'
+author: "Jaipreet Kaur"
+output:
+  pdf_document:
+    toc: true
+  html_document:
+    toc: true
+    toc_float: true
+    theme: readable
+---
+
+# Problem Summary
+
+We decide the production rates of three new products \(x_1, x_2, x_3 \ge 0\).  
+Define goal deviation variables (nonnegative):
+
+- Employment goal: \(y_1^+\) = amount **over** the target, \(y_1^-\) = amount **under** the target.
+- Earnings goal: \(y_2^+\) = amount **over** the target, \(y_2^-\) = amount **under** the target.
+
+Given unit contributions (per unit of production):
+
+| Factor | Product 1 | Product 2 | Product 3 | Goal / Units |
+|---|---:|---:|---:|---|
+| Profit \(P\) | 20 | 15 | 25 | Maximize (millions of \$) |
+| Employment level | 6 | 4 | 5 | \(=50\) (hundreds of employees) |
+| Earnings next year | 8 | 7 | 5 | \(\ge 75\) (millions of \$) |
+
+## Q1. Express \(y_1^+, y_1^-, y_2^+, y_2^-\) and \(P\) in terms of \(x_1,x_2,x_3\).
+
+Balance (goal) equations:
+
+\[
+\begin{aligned}
+6x_1 + 4x_2 + 5x_3 \;+\; y_1^- \;-\; y_1^+ &= 50,\\
+8x_1 + 7x_2 + 5x_3 \;+\; y_2^- \;-\; y_2^+ &= 75.
+\end{aligned}
+\]
+
+Hence,
+\[
+\begin{aligned}
+y_1^+ &= \max\{0,\;6x_1+4x_2+5x_3-50\},\quad
+y_1^- = \max\{0,\;50-(6x_1+4x_2+5x_3)\},\\
+y_2^+ &= \max\{0,\;8x_1+7x_2+5x_3-75\},\quad
+y_2^- = \max\{0,\;75-(8x_1+7x_2+5x_3)\}.
+\end{aligned}
+\]
+
+Total (discounted) profit over the products’ lifetimes:
+\[
+P \;=\; 20x_1 + 15x_2 + 25x_3.
+\]
+
+## Q2. Management’s objective in decision variables
+
+Let \(C\) be the change in employment (in either direction) from the current level (50 hundreds):  
+\[
+C \;=\; y_1^+ + y_1^-.
+\]
+Let \(D\) be the **decrease** in next year’s earnings from the current level (75):  
+\[
+D \;=\; y_2^-.
+\]
+
+The stated objective is
+\[
+\max Z \;=\; P - 6C - 3D 
+\;=\; (20x_1 + 15x_2 + 25x_3) \;-\; 6(y_1^+ + y_1^-) \;-\; 3y_2^-.
+\]
+
+## Q3. LP formulation & solution
+
+**Linear Program**
+
+\[
+\begin{aligned}
+\max\; Z &= 20x_1 + 15x_2 + 25x_3 - 6y_1^+ - 6y_1^- - 3y_2^- \\[2mm]
+\text{s.t.}\quad
+& 6x_1 + 4x_2 + 5x_3 + y_1^- - y_1^+ = 50,\\
+& 8x_1 + 7x_2 + 5x_3 + y_2^- - y_2^+ = 75,\\
+& x_1,x_2,x_3, y_1^+,y_1^-,y_2^+,y_2^- \ge 0.
+\end{aligned}
+\]
+
+### Solve in R (lpSolve)
+
+```r
+# install.packages("lpSolve")  # uncomment if needed
+library(lpSolve)
+
+# Decision variables: x1,x2,x3,y1p,y1m,y2p,y2m
+# Objective (maximize): 20 15 25  -6 -6   0  -3
+obj <- c(20, 15, 25, -6, -6, 0, -3)
+
+# Constraint matrix (2 equalities)
+A <- rbind(
+  c(6, 4, 5, -1, 1,  0,  0),  # employment
+  c(8, 7, 5,  0, 0, -1,  1)   # earnings
+)
+b <- c(50, 75)
+sense <- c("=", "=")
+
+res <- lp(direction = "max",
+          objective.in = obj,
+          const.mat = A,
+          const.dir = sense,
+          const.rhs = b,
+          all.int = FALSE,
+          compute.sens = FALSE)
+
+res$status          # 0 = optimal
+res$objval
+
+soln <- setNames(res$solution, c("x1","x2","x3","y1p","y1m","y2p","y2m"))
+soln
+```
+
+### Expected optimal solution & interpretation
+
+The optimal plan is:
+- \(x_1 = 0,\; x_2 = 0,\; x_3 = 15\)
+- \(y_1^+ = 25,\; y_1^- = 0,\; y_2^+ = 0,\; y_2^- = 0\)
+
+Objective value: \(Z = 225\).
+
+**Interpretation.** Produce only Product 3 at rate 15.  
+This exactly meets next year’s earnings target (5·15 = 75), but **overshoots** the employment target by 25 (hundreds of employees). That overage is acceptable under the stated trade‑off because the profit contribution from Product 3 more than offsets the employment‑deviation penalty in the objective. No earnings shortfall occurs, so \(y_2^-=0\).
+
+# Appendix: Model file (.lp) for solvers
+
+The same model in CPLEX/GLPK “.lp” format is provided alongside this Rmd.
+```
