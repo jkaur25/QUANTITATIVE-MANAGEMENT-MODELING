@@ -1,0 +1,13 @@
+staff_id,name,type,weekday_wage,weekend_wage
+P1,Garcia,Paramedic,250,300
+P2,Smith,Paramedic,250,300
+P3,Johnson,Paramedic,250,300
+P4,Williams,Paramedic,250,300
+E1,Brown,EMT,180,220
+E2,Jones,EMT,180,220
+E3,Miller,EMT,180,220
+E4,Davis,EMT,180,220
+E5,Wilson,EMT,180,220
+E6,Moore,EMT,180,220
+E7,Taylor,EMT,180,220
+E8,Anderson,EMT,180,220

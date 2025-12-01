@@ -1,0 +1,8 @@
+day,day_num,min_staff,min_paramedics
+Monday,1,6,2
+Tuesday,2,6,2
+Wednesday,3,8,3
+Thursday,4,8,3
+Friday,5,10,4
+Saturday,6,8,3
+Sunday,7,6,2

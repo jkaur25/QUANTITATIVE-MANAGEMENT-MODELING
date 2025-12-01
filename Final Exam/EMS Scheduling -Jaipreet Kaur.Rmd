@@ -1,0 +1,203 @@
+---
+title: "EMS Staff Scheduling Optimization Project"
+author: "Jaipreet Kaur"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+  pdf_document:
+    latex_engine: xelatex
+---
+
+# 1. Introduction
+
+This project develops a mathematical optimization model to create a minimum-cost weekly schedule for EMS staff.
+
+# 2. Data
+
+```{r}
+staff <- read.csv("staff.csv")
+req <- read.csv("requirements.csv")
+staff
+req
+```
+
+# 3. Manual Feasible Schedule
+
+```{r}
+manual_schedule <- matrix(
+  c(
+    1,1,1,1,0,0,0,
+    1,1,1,1,1,0,0,
+    1,0,1,0,1,1,0,
+    0,0,1,1,1,1,1,
+    1,1,1,1,1,0,0,
+    1,1,0,1,0,0,0,
+    1,1,1,1,1,1,0,
+    1,1,1,1,1,1,0,
+    1,0,1,0,1,1,0,
+    1,1,1,1,1,1,1,
+    1,1,1,1,1,0,0,
+    1,1,1,1,1,1,1
+  ),
+  nrow = 12, byrow = TRUE
+)
+
+rownames(manual_schedule) <- staff$staff_id
+colnames(manual_schedule) <- req$day
+manual_schedule
+
+cost_manual <- function(schedule) {
+  total <- 0
+  for (i in 1:nrow(schedule)) {
+    for (d in 1:ncol(schedule)) {
+      wage <- if (d %in% c(6,7)) staff$weekend_wage[i] else staff$weekday_wage[i]
+      total <- total + wage * schedule[i, d]
+    }
+  }
+  total
+}
+
+manual_cost <- cost_manual(manual_schedule)
+manual_cost
+```
+
+# 4. Optimization Model Implementation
+
+```{r}
+library(lpSolve)
+
+staff_ids <- staff$staff_id
+days <- req$day_num
+n_staff <- length(staff_ids)
+n_days <- length(days)
+
+col_index <- function(i,d) (i-1)*n_days + d
+n_vars <- n_staff * n_days
+
+# Objective vector
+c_vec <- rep(0,n_vars)
+for(i in 1:n_staff){
+  for(d in 1:n_days){
+    wage <- if(d %in% c(6,7)) staff$weekend_wage[i] else staff$weekday_wage[i]
+    c_vec[col_index(i,d)] <- wage
+  }
+}
+
+A <- list(); dir <- c(); rhs <- c()
+
+# Daily staff req
+for(d in 1:n_days){
+  row <- rep(0,n_vars)
+  for(i in 1:n_staff) row[col_index(i,d)] <- 1
+  A <- append(A,list(row)); dir <- c(dir,">="); rhs <- c(rhs, req$min_staff[d])
+}
+
+# Paramedics
+paramedics <- which(staff$type=="Paramedic")
+for(d in 1:n_days){
+  row <- rep(0,n_vars)
+  for(i in paramedics) row[col_index(i,d)] <- 1
+  A <- append(A,list(row)); dir <- c(dir,">="); rhs <- c(rhs, req$min_paramedics[d])
+}
+
+# Max 5 days/week
+for(i in 1:n_staff){
+  row <- rep(0,n_vars)
+  for(d in 1:n_days) row[col_index(i,d)] <- 1
+  A <- append(A,list(row)); dir <- c(dir,"<="); rhs <- c(rhs, 5)
+}
+
+# No >4 consecutive
+for(i in 1:n_staff){
+  for(start in 1:3){
+    row <- rep(0,n_vars)
+    for(d in start:(start+4)) row[col_index(i,d)] <- 1
+    A <- append(A,list(row)); dir <- c(dir,"<="); rhs <- c(rhs,4)
+  }
+}
+
+# Availability
+unavailability <- list(
+  c("P1",7),
+  c("P4",1), c("P4",2),
+  c("E2",6), c("E2",7),
+  c("E5",5)
+)
+id_map <- setNames(1:n_staff, staff_ids)
+
+for(u in unavailability){
+  i <- id_map[[u[1]]]
+  d <- as.numeric(u[2])
+  row <- rep(0,n_vars); row[col_index(i,d)] <- 1
+  A <- append(A,list(row)); dir <- c(dir,"=="); rhs <- c(rhs,0)
+}
+
+A_mat <- do.call(rbind,A)
+
+solution <- lp(
+  direction="min",
+  objective.in=c_vec,
+  const.mat=A_mat,
+  const.dir=dir,
+  const.rhs=rhs,
+  all.bin=TRUE
+)
+
+optimal_cost <- solution$objval
+optimal_cost
+
+x_opt <- matrix(solution$solution, nrow=n_staff, byrow=TRUE)
+rownames(x_opt) <- staff_ids
+colnames(x_opt) <- req$day
+
+x_opt
+```
+
+# 5. Final Schedule Output Table
+
+```{r}
+library(knitr)
+library(dplyr)
+
+# Convert 0/1 to ✓ or -
+display_schedule <- ifelse(x_opt == 1, "✓", "-")
+
+schedule_df <- as.data.frame(display_schedule)
+schedule_df$`Total Days` <- rowSums(x_opt)
+
+# Individual cost
+individual_cost <- function(i){
+  total <- 0
+  for(d in 1:ncol(x_opt)){
+    wage <- if(d %in% c(6,7)) staff$weekend_wage[i] else staff$weekday_wage[i]
+    total <- total + wage * x_opt[i,d]
+  }
+  total
+}
+
+schedule_df$Cost <- sapply(1:nrow(x_opt), individual_cost)
+schedule_df <- cbind(Staff = staff$staff_id, schedule_df)
+
+# Daily totals
+daily_total <- colSums(x_opt)
+paramedic_idx <- which(staff$type=="Paramedic")
+paramedic_daily <- colSums(x_opt[paramedic_idx,])
+
+summary_df <- rbind(
+  schedule_df,
+  c("Daily Total", as.character(daily_total), "", ""),
+  c("Paramedics", as.character(paramedic_daily), "", "")
+)
+
+kable(
+  summary_df,
+  align="c",
+  caption="Final EMS Optimal Weekly Schedule"
+)
+
+cat("**Total Weekly Cost: $", format(optimal_cost, big.mark=','), "**", sep="")
+```
+
